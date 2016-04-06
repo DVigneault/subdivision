@@ -18,13 +18,15 @@ from common import example_extraordinary_patch
 # main
 def main():
     parser = argparse.ArgumentParser()
+    # Valency of the vertex of interest.
     parser.add_argument('N', nargs='?', type=int, default=5)
+    # Number of levels of subdivision.
     parser.add_argument('n', nargs='?', type=int, default=2)
+    # Sampling density along each parametric axis.
     parser.add_argument('m', nargs='?', type=int, default=21)
     args = parser.parse_args()
 
-    # Generate example extraordinary patch with an extraordinary face of `N`
-    # sides.
+    # Generate example extraordinary patch with an extraordinary vertex of valency `N`.
     X = example_extraordinary_patch(args.N)
 
     # Visualise `n` "levels" of subdivision.
