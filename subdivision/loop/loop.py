@@ -58,9 +58,6 @@ def subdivision_matrix(N):
     N : int
         Valency of vertex of interest.
 
-    k : int
-        Child index of the patch (0, 1, or 2).
-
     Returns
     -------
     P : array_like of shape (N+1, N+1)
