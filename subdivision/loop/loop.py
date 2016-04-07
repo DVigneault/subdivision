@@ -29,7 +29,10 @@ __all__ = ['g',
            'triangle_bspline_dv_basis',
            'triangle_bspline_du_du_basis',
            'triangle_bspline_du_dv_basis',
-           'triangle_bspline_dv_dv_basis']
+           'triangle_bspline_dv_dv_basis',
+           'triangle_bezier_dr_basis',
+           'triangle_bezier_ds_basis',
+           'triangle_bezier_dt_basis']
 
 # Loop Subdivision Matrices
 
@@ -49,6 +52,20 @@ class g(object):
 
 # subdivision_matrix
 def subdivision_matrix(N):
+    """
+    Parameters
+    ----------
+    N : int
+        Valency of vertex of interest.
+
+    k : int
+        Child index of the patch (0, 1, or 2).
+
+    Returns
+    -------
+    P : array_like of shape (N+1, N+1)
+        The upper left block of the extended and bigger subdivision matrices.
+    """
     alpha = g.Rational(5, 8) - (3 + 2 * g.cos(2 * g.pi / N))**2 / 64
     a = 1 - alpha
     b = alpha / N
@@ -66,6 +83,18 @@ def subdivision_matrix(N):
 
 # extended_subdivision_matrix
 def extended_subdivision_matrix(N):
+    """
+    Parameters
+    ----------
+    N : int
+        Valency of vertex of interest.
+
+    Returns
+    -------
+    P : array_like of shape (N+6, N+6)
+        This matrix subdivides the extraordinary component of a matrix of control
+        points, yielding a new matrix of identical topology.
+    """
     S = subdivision_matrix(N)
 
     A = [s + [0] * 5 for s in S]
@@ -79,6 +108,19 @@ def extended_subdivision_matrix(N):
 
 # bigger_subdivision_matrix
 def bigger_subdivision_matrix(N):
+    """
+    Parameters
+    ----------
+    N : int
+        Valency of vertex of interest.
+
+    Returns
+    -------
+    P : array_like of shape (N+12, N+6)
+        This matrix contains the logic to refine a list of control vertices to
+        four patches: 3 with ordinary topology, and one with topology identical
+        to the original matrix.
+    """
     A_ = extended_subdivision_matrix(N)
 
     a, b = [g.Rational(i, 8) for i in [1, 3]]
@@ -101,6 +143,21 @@ PICKING_INDICES = [
     lambda N: range(N + 6),
 ]
 def picker_matrix(N, k):
+    """
+    Parameters
+    ----------
+    N : int
+        Valency of vertex of interest.
+
+    k : int
+        Child index of the patch (0, 1, or 2).
+
+    Returns
+    -------
+    P : array_like of shape (12, N+12)
+        A matrix which "picks" the twelve control points corresponding to the
+        ordinary patch at index k.
+    """
     M = N + 12
     j = PICKING_INDICES[k](N)
     n = len(j)
@@ -184,6 +241,10 @@ def parse_term(symbs, term_str):
 ((u, v, w),
  triangle_bspline_basis_uvw) = parse_source_polynomials_to_sympy()
 
+r, s, t = sp.symbols('r s t')
+triangle_bezier_basis_rst = triangle_bspline_basis_uvw.subs(
+    {u:r, v:s, w:t}, simultaneous=True)
+
 # Use `u` for the first coordinate and `v` for the second.
 # (Stam uses `v` and `w` respectively.)
 triangle_bspline_basis_uvw = triangle_bspline_basis_uvw.subs(
@@ -198,6 +259,23 @@ triangle_bspline_basis_uv = triangle_bspline_basis_uvw.subs(
 
 # transform_u_to_subdivided_patch
 def transform_u_to_subdivided_patch(u):
+    """
+    Parameters
+    ----------
+    u : array_like of shape = (2,)
+        The patch coordinate.
+
+    Returns
+    -------
+    n : int
+        Number of required subdivisions.
+
+    k : int
+        Child index of the patch (0, 1, or 2).
+
+    u : array_like of shape = (2,)
+        The transformed patch coordinate.
+    """
     u = np.copy(u)
     n = int(np.floor(1.0 - np.log2(np.sum(u))))
     u *= 2**(n - 1)
@@ -222,7 +300,11 @@ def recursive_evaluate(p, b, N, u, X=None):
     Parameters
     ----------
     p : int
-        The returned vector or point is scaled by `2^p`.
+        The derivative order of the supplied basis functions.
+        `0` should be supplied for position functions,
+        `1` for first partial derivatives, `2` for second
+        partial derivatives, etc.  This is used to calculate
+        an appropriate scaling factor.
 
     b : function
         The basis function (e.g. `triangle_bspline_position_basis`).
@@ -255,8 +337,8 @@ def recursive_evaluate(p, b, N, u, X=None):
     x = np.dot(x, A_)
     return x if X is None else np.dot(x, X)
 
-# exprs_to_basis
-def exprs_to_basis(exprs, func_name=None):
+# exprs_to_uv_basis
+def exprs_to_uv_basis(exprs, func_name=None):
     bs = [sympy_polynomial_to_function(e, (u, v)) for e in exprs]
     def basis_function(U):
         u, v = np.atleast_2d(U).T
@@ -269,34 +351,69 @@ def exprs_to_basis(exprs, func_name=None):
         basis_function.func_name = func_name
     return basis_function
 
+def exprs_to_st_basis(exprs, func_name=None):
+    bs = [sympy_polynomial_to_function(e, (s, t)) for e in exprs]
+    def basis_function(U):
+        s, t = np.atleast_2d(U).T
+        B = np.empty((len(s), len(bs)), dtype=np.float64)
+        for i, b in enumerate(bs):
+            B[:, i] = b(s, t)
+        return B
+
+    if func_name is not None:
+        basis_function.func_name = func_name
+    return basis_function
+
 # triangle_bspline_position_basis
-triangle_bspline_position_basis = exprs_to_basis(
+triangle_bspline_position_basis = exprs_to_uv_basis(
     triangle_bspline_basis_uv,
     'triangle_bspline_position_basis')
 
-# triangle_bspline_du_basis
 def Du(b): return [sp.diff(f, u) for f in b]
-triangle_bspline_du_basis = exprs_to_basis(
+def Dv(b): return [sp.diff(f, v) for f in b]
+def Dw(b): return [sp.diff(f, w) for f in b]
+
+def Dr(b): return [sp.diff(f, r) for f in b]
+def Ds(b): return [sp.diff(f, s) for f in b]
+def Dt(b): return [sp.diff(f, t) for f in b]
+
+# triangle_bspline_du_basis
+triangle_bspline_du_basis = exprs_to_uv_basis(
     Du(triangle_bspline_basis_uv),
     'triangle_bspline_du_basis')
 
 # triangle_bspline_dv_basis
-def Dv(b): return [sp.diff(f, v) for f in b]
-triangle_bspline_dv_basis = exprs_to_basis(
+triangle_bspline_dv_basis = exprs_to_uv_basis(
     Dv(triangle_bspline_basis_uv),
     'triangle_bspline_dv_basis')
 
 # triangle_bspline_du_du_basis
-triangle_bspline_du_du_basis = exprs_to_basis(
+triangle_bspline_du_du_basis = exprs_to_uv_basis(
     Du(Du(triangle_bspline_basis_uv)),
     'triangle_bspline_du_du_basis')
 
 # triangle_bspline_du_dv_basis
-triangle_bspline_du_dv_basis = exprs_to_basis(
+triangle_bspline_du_dv_basis = exprs_to_uv_basis(
     Dv(Du(triangle_bspline_basis_uv)),
     'triangle_bspline_du_dv_basis')
 
 # triangle_bspline_dv_dv_basis
-triangle_bspline_dv_dv_basis = exprs_to_basis(
+triangle_bspline_dv_dv_basis = exprs_to_uv_basis(
     Dv(Dv(triangle_bspline_basis_uv)),
     'triangle_bspline_dv_dv_basis')
+
+# triangle_bezier_dr_basis
+triangle_bezier_dr_basis = exprs_to_st_basis(
+    [b.subs({r: 1 - s - t}) for b in Dr(triangle_bezier_basis_rst)],
+    'triangle_bezier_dr_basis')
+
+# triangle_bezier_ds_basis
+triangle_bezier_ds_basis = exprs_to_st_basis(
+    [b.subs({r: 1 - s - t}) for b in Ds(triangle_bezier_basis_rst)],
+    'triangle_bezier_ds_basis')
+
+# triangle_bezier_dt_basis
+triangle_bezier_dt_basis = exprs_to_st_basis(
+    [b.subs({r: 1 - s - t}) for b in Dt(triangle_bezier_basis_rst)],
+    'triangle_bezier_dt_basis')
+
