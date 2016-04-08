@@ -32,7 +32,6 @@ def main():
 
     val = np.asarray(loop.extended_subdivision_eigenvalues(N))
     R = np.asarray(loop.extended_subdivision_eigenvectors(N))
-#    (val,R) = la.eig(A) # Columnwise R Eigenvectors
     L = la.inv(R).transpose() # Columnwise L Eigenvectors
 
     # Ensure that the eigenvalues/eigenvectors are not complex.
@@ -140,9 +139,10 @@ def main():
         vs[0,i+1] = math.cos(2*math.pi*i/N)
 
     sub = R[:,1:3]
-    assert(1 == np.sum(vs.dot(sub) < 10e-6))
-    print "vs.dot(sub): ", vs.dot(sub)
-    components[7,:] = vs
+    assert(1 == np.sum(abs(vs.dot(sub)) < 10e-6))
+    scale = vs.dot(sub)[abs(vs.dot(sub)) > 10e-6][0]
+
+    components[7,:] = vs / scale
 
     #########################
     # Xt(1,0,0) - Xr(1,0,0) #
@@ -152,8 +152,10 @@ def main():
     for i in xrange(1,N+1):
         vt[0,i] = math.cos(2*math.pi*i/N)
 
-    print "vt.dot(sub)", vt.dot(sub)
-    components[8,:] = vt
+#    assert(1 == np.sum(abs(vt.dot(sub)) < 10e-6)) # assertion fails
+#    print "vt.dot(sub)", vt.dot(sub) # vt.dot(sub) [[-2.598  1.5  ]]
+
+    components[8,:] = vt / scale
 
     #########################
     # Xt(0,1,0) - Xs(0,1,0) #
@@ -219,11 +221,6 @@ def main():
 
     components[12,:] = Xs - Xt
 
-    # Fudge factors
-    warnings.warn("WARNING: Calculations are incorrect, requiring magic number scaling.")
-    components[7,:] *= 1./3
-    components[8,:] *= 1./3
-
     calculatedBezierWeights = weights.dot(components)
      
     knownBezierWeights =[[ 2,12, 2, 0, 0, 0, 2, 2, 2, 2, 0, 0],
@@ -246,8 +243,8 @@ def main():
 
     if 6 == N:
         difference = knownBezierWeights - calculatedBezierWeights
-        print difference
         assert(np.allclose(difference, np.zeros(difference.shape, dtype = np.float64)))
+        print "Success!  The Bezier conversion matrix was correctly calculated for N = 6."
 
 if __name__ == '__main__':
     main()
