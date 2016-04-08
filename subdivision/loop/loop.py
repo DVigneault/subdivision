@@ -12,12 +12,15 @@ import re
 import sympy as sp
 from functools import partial
 from operator import add, mul
+from scipy import linalg as la
 
 # Requires `rscommon`.
 from rscommon.sympy_ import sympy_polynomial_to_function
 
 # __all__.
 __all__ = ['g',
+           'extended_subdivision_eigenvalues',
+           'extended_subdivision_eigenvectors',
            'subdivision_matrix',
            'extended_subdivision_matrix',
            'bigger_subdivision_matrix',
@@ -47,8 +50,132 @@ class g(object):
     def Rational(a, b):
         return float(a) / b
 
+# calculate_alpha
+def calculate_alpha(N):
+    return g.Rational(5, 8) - (3 + 2 * g.cos(2 * g.pi / N))**2 / 64
+
+# calculate_f
+def calculate_f(k, N):
+    return g.Rational(3, 8) + g.Rational(2, 8) * g.cos(2 * g.pi * k / N)
+
 # The subdivision matrix, extended subdivision matrix, and "bigger" subdivision
 # matrix are all terms from: Stam, "Evaluation of Loop Subdivision Surfaces".
+
+# Eigenvalues
+
+# subdivision_eigenvalues
+def subdivision_eigenvalues(N): # Sigma in Stam's paper
+    s = []
+    s.append(1)
+    s.append( g.Rational(5, 8) - calculate_alpha(N) )
+    for i in xrange(3, N+2):
+        s.append( calculate_f(i-2,N) )
+    return s
+
+
+# s12_eigenvalues
+def s12_eigenvalues(): # Delta in Stam's paper
+    a = g.Rational(1, 8)
+    b = g.Rational(1, 16)
+    return [a, a, a, b, b]
+
+# extended_subdivision_eigenvalues
+def extended_subdivision_eigenvalues(N): # Lambda in Stam's paper
+    s = subdivision_eigenvalues(N)
+    s12 = s12_eigenvalues()
+    return s + s12
+
+# Eigenvectors
+
+# subdivision_eigenvectors
+def subdivision_eigenvectors(N): # U0 in Stam's paper
+
+    # Calculate *complex* eigenvectors.
+    s = np.ones((N+1, N+1), dtype=complex)
+    s[0,:] = 0
+    s[0,0] = 1
+    s[0,1] = g.Rational(-8, 3) * calculate_alpha(N)
+    indices = [i+1 + 0.j for i in xrange(0,N-1)]
+    col_indices = np.zeros((N-1,1), dtype=complex)
+    row_indices = np.zeros((1,N-1), dtype=complex)
+    col_indices[:,0] = indices
+    row_indices[0,:] = indices
+    indices = col_indices.dot(row_indices)
+    s[2:,2:] = np.exp(2.j * g.pi * indices / N)
+
+    # Calculate *real* eigenvectors.
+    if (1 == N % 2):
+        print "odd"
+    else:
+        for u in xrange(3, (N+1-2-1)/2+3):
+            l_c = s[:,u-1]
+            r_c = s[:,N-(u-3)]
+            l_r = (l_c + r_c) / 2
+            r_r = (l_c - r_c) / 2j
+            s[:,u-1] = l_r
+            s[:,N-(u-3)] = r_r
+
+    assert(np.allclose(np.imag(s), np.zeros(np.shape(s))))
+    s = np.real(s).tolist()
+
+    return s
+
+# s12_eigenvectors
+def s12_eigenvectors(): # W1 in Stam's paper
+    return [ [0,-1, 1, 0, 0],
+             [1,-1, 1, 0, 1],
+             [1, 0, 0, 0, 0],
+             [0, 0, 1, 1, 0],
+             [0, 1, 0, 0, 0] ]
+
+# subdivision_eigenvectors_lower_block
+def subdivision_eigenvectors_lower_block(N): # U1 in Stam's paper
+    # Sylvester Equation:
+    # A * X + X * B = Q
+
+    # From Stam:
+    # u1 * sigma - s12 * u1 = s11 * u0
+
+    # Fit to Sylvester:
+    # (u1 * sigma - s12 * u1)^T = (s11 * u0)^T
+    # (u1 * sigma)^T + (-1 * s12 * u1)^T = (s11 * u0)^T
+    # Transpose distributes over multiplication: (A * B)^T = B^T * A^T
+    # sigma is diagonal : (sigma^T = sigma)
+    # sigma * u1^T + u1^T * (-1 * s12)^T = (s11 * u0)^T
+    # |___|   |__|   |__|   |__________|   |__________|
+    #   A       X      X          B              Q
+
+    sigma = np.diag(np.asarray(subdivision_eigenvalues(N)))
+    s12 = np.asarray(s12_matrix())
+    s11 = np.asarray(s11_matrix(N))
+    u0 = np.asarray(subdivision_eigenvectors(N))
+
+    A = sigma                     # (M, M)
+    B = (-1 * s12).transpose()    # (N, N)
+    Q = (s11.dot(u0)).transpose() # (M, N)
+    X = la.solve_sylvester(A, B, Q).transpose() # (M, N)
+
+    return X.tolist()
+
+# extended_subdivision_eigenvectors
+def extended_subdivision_eigenvectors(N): # V in Stam's paper
+
+    # V = | u0  0 |
+    #     | u1 w1 |
+
+    u0 = subdivision_eigenvectors(N)
+    u1 = subdivision_eigenvectors_lower_block(N)
+    w1 = s12_eigenvectors()
+
+    u0 = [r + [0] * 5 for r in u0]
+    lower_block = []
+    for i in xrange(0,len(u1)):
+      lower_block.append(u1[i] + w1[i])
+    for r in lower_block:
+      u0.append(r)
+    return u0
+
+# Core Matrices
 
 # subdivision_matrix
 def subdivision_matrix(N):
@@ -63,7 +190,7 @@ def subdivision_matrix(N):
     P : array_like of shape (N+1, N+1)
         The upper left block of the extended and bigger subdivision matrices.
     """
-    alpha = g.Rational(5, 8) - (3 + 2 * g.cos(2 * g.pi / N))**2 / 64
+    alpha = calculate_alpha(N)
     a = 1 - alpha
     b = alpha / N
     c = g.Rational(3, 8)
@@ -92,16 +219,39 @@ def extended_subdivision_matrix(N):
         This matrix subdivides the extraordinary component of a matrix of control
         points, yielding a new matrix of identical topology.
     """
+    # A = |   s   0 |
+    #     | s11 s12 |
+
     S = subdivision_matrix(N)
+    s11 = s11_matrix(N)
+    s12 = s12_matrix()
 
     A = [s + [0] * 5 for s in S]
-    a, b, c, d = [g.Rational(i, 16) for i in [1, 2, 6, 10]]
-    A.append([b, c] + [0] * (N - 2) + [c, b] + [0] * 4)
-    A.append([a, d, a] + [0] * (N - 3) + [a, a, a, a] + [0] * 2)
-    A.append([b, c, c] + [0] * N + [b] + [0] * 2)
-    A.append([a, a] + [0] * (N - 3) + [a, d, a] + [0] * 2 + [a, a])
-    A.append([b] + [0] * (N - 2) + [c, c] + [0] * 4 + [b])
+    lower_block = []
+    for i in xrange(0,len(s11)):
+      lower_block.append(s11[i] + s12[i])
+    for r in lower_block:
+      A.append(r)
     return A
+
+def s11_matrix(N):
+    a, b, c, d = [g.Rational(i, 16) for i in [1, 2, 6, 10]]
+    s11 = [[b, c] + [0] * (N - 2) + [c]]
+    s11.append([a, d, a] + [0] * (N - 3) + [a])
+    s11.append([b, c, c] + [0] * (N - 2))
+    s11.append([a, a] + [0] * (N - 3) + [a, d])
+    s11.append([b] + [0] * (N - 2) + [c, c])
+    return s11
+
+def s12_matrix():
+    a, b = [g.Rational(i, 16) for i in [1, 2]]
+    s12 = [[b, 0, 0, 0, 0],
+           [a, a, a, 0, 0],
+           [0, 0, b, 0, 0],
+           [a, 0, 0, a, a],
+           [0, 0, 0, 0, b]]
+    return s12
+    
 
 # bigger_subdivision_matrix
 def bigger_subdivision_matrix(N):
