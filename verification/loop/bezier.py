@@ -30,7 +30,9 @@ def main():
 
     # Calculate Eigenvalues/Eigenvectors
 
-    (val,R) = la.eig(A) # Columnwise R Eigenvectors
+    val = np.asarray(loop.extended_subdivision_eigenvalues(N))
+    R = np.asarray(loop.extended_subdivision_eigenvectors(N))
+#    (val,R) = la.eig(A) # Columnwise R Eigenvectors
     L = la.inv(R).transpose() # Columnwise L Eigenvectors
 
     # Ensure that the eigenvalues/eigenvectors are not complex.
@@ -136,6 +138,10 @@ def main():
     vs = np.zeros((1, N+6), dtype = np.float64)
     for i in xrange(0,N):
         vs[0,i+1] = math.cos(2*math.pi*i/N)
+
+    sub = R[:,1:3]
+    assert(1 == np.sum(vs.dot(sub) < 10e-6))
+    print "vs.dot(sub): ", vs.dot(sub)
     components[7,:] = vs
 
     #########################
@@ -145,6 +151,8 @@ def main():
     vt = np.zeros((1, N+6), dtype = np.float64)
     for i in xrange(1,N+1):
         vt[0,i] = math.cos(2*math.pi*i/N)
+
+    print "vt.dot(sub)", vt.dot(sub)
     components[8,:] = vt
 
     #########################
@@ -238,6 +246,7 @@ def main():
 
     if 6 == N:
         difference = knownBezierWeights - calculatedBezierWeights
+        print difference
         assert(np.allclose(difference, np.zeros(difference.shape, dtype = np.float64)))
 
 if __name__ == '__main__':
