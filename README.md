@@ -33,6 +33,7 @@ Core:
 * Cython
 * Numpy
 * Sympy
+* Scipy
 
 Visualisation:
 * matplotlib
