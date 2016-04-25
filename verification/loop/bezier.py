@@ -7,15 +7,11 @@
 ##########################################
 
 # Imports
-import sympy as sy
-import argparse
 import numpy as np
-from numpy import linalg as la
 import math
 import warnings
 
 from subdivision import loop
-from common import example_extraordinary_patch
 
 # main
 def main():
