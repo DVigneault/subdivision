@@ -44,6 +44,28 @@ def bezier_position_function():
   position_basis = expand_powers(position_basis)
   return position_basis
 
+def bezier_thin_plate_matrix():
+
+  bezier_position = bezier_position_function()
+
+  bezier_position = bezier_position.subs( { r : 1 - s - t } )
+  bezier_position = bezier_position.subs( { s : x - t/2, t : y * sp.sqrt(3) } )
+
+  bezier_basis_xx = copy.deepcopy(bezier_position).diff(x).diff(x)
+  bezier_basis_xy = copy.deepcopy(bezier_position).diff(x).diff(y)
+  bezier_basis_yy = copy.deepcopy(bezier_position).diff(y).diff(y)
+
+  xx = bezier_basis_xx * bezier_basis_xx.transpose()
+  xy = bezier_basis_xy * bezier_basis_xy.transpose()
+  yy = bezier_basis_yy * bezier_basis_yy.transpose()
+
+  i_x = lambda expression: expression.integrate((x, y/sp.sqrt(3), (1-y/sp.sqrt(3))))
+  i_y = lambda expression: expression.integrate((y, 0, sp.sqrt(3)/2))
+
+  M = (2/sp.sqrt(3))*i_y(i_x(xx + 2*xy + yy))
+
+  return M
+
 def main():
 
   # Global options
@@ -85,31 +107,20 @@ def main():
   # Thin plate energy #
   #####################
 
-  bezier_position = bezier_position.subs( { r : 1 - s - t } )
-  bezier_position = bezier_position.subs( { s : x - t/2, t : y * sp.sqrt(3) } )
+  M = bezier_thin_plate_matrix()
 
-  bezier_basis_xx = copy.deepcopy(bezier_position).diff(x).diff(x)
-  bezier_basis_xy = copy.deepcopy(bezier_position).diff(x).diff(y)
-  bezier_basis_yy = copy.deepcopy(bezier_position).diff(y).diff(y)
+  print "M*2560 =\n"
+  sp.pprint(M*2560)
 
-  xx = bezier_basis_xx * bezier_basis_xx.transpose()
-  xy = bezier_basis_xy * bezier_basis_xy.transpose()
-  yy = bezier_basis_yy * bezier_basis_yy.transpose()
-
-  i_x = lambda expression: expression.integrate((x, y/sp.sqrt(3), (1-y/sp.sqrt(3))))
-  i_y = lambda expression: expression.integrate((y, 0, sp.sqrt(3)/2))
-
-  M = (2/sp.sqrt(3))*i_y(i_x(xx + 2*xy + yy))
   M = np.array(M.tolist()).astype(np.float64)
-
-#  sp.pprint(M)
 
   B = B.flatten('F')
   M_Block = np.zeros((M.shape[0]*2, M.shape[1]*2))
   M_Block[0:M.shape[0], 0:M.shape[1]] = M
   M_Block[M.shape[0]:, M.shape[1]:] = M
 
-  print B.dot(M_Block).dot(B)
+  tp = B.dot(M_Block).dot(B)
+  assert(np.allclose(tp, [[0]]))
 
 if __name__ == '__main__':
     main()
